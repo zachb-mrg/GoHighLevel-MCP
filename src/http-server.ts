@@ -350,41 +350,46 @@ class GHLMCPHttpServer {
       }
     });
 
-    // SSE endpoint for ChatGPT MCP connection
-    const handleSSE = async (req: express.Request, res: express.Response) => {
-      const sessionId = req.query.sessionId || 'unknown';
-      console.log(`[GHL MCP HTTP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
-      
+    // SSE endpoint with proper session management for MCP protocol
+    // GET /sse establishes the event stream and assigns a sessionId.
+    // POST /messages?sessionId=... delivers JSON-RPC requests, which are
+    // routed back to the open SSE stream via transport.handlePostMessage.
+    const transports: Record<string, SSEServerTransport> = {};
+
+    this.app.get('/sse', async (req, res) => {
+      console.log(`[GHL MCP HTTP] New SSE connection from: ${req.ip}`);
       try {
-        // Create SSE transport (this will set the headers)
-        const transport = new SSEServerTransport('/sse', res);
-        
-        // Connect MCP server to transport
-        await this.server.connect(transport);
-        
-        console.log(`[GHL MCP HTTP] SSE connection established for session: ${sessionId}`);
-        
-        // Handle client disconnect
-        req.on('close', () => {
-          console.log(`[GHL MCP HTTP] SSE connection closed for session: ${sessionId}`);
+        // Advertise POST endpoint as /messages
+        const transport = new SSEServerTransport('/messages', res);
+        transports[transport.sessionId] = transport;
+        console.log(`[GHL MCP HTTP] SSE session created: ${transport.sessionId}`);
+
+        res.on('close', () => {
+          console.log(`[GHL MCP HTTP] SSE connection closed for session: ${transport.sessionId}`);
+          delete transports[transport.sessionId];
         });
-        
+
+        await this.server.connect(transport);
       } catch (error) {
-        console.error(`[GHL MCP HTTP] SSE connection error for session ${sessionId}:`, error);
-        
-        // Only send error response if headers haven't been sent yet
+        console.error('[GHL MCP HTTP] SSE connection error:', error);
         if (!res.headersSent) {
           res.status(500).json({ error: 'Failed to establish SSE connection' });
         } else {
-          // If headers were already sent, close the connection
           res.end();
         }
       }
-    };
+    });
 
-    // Handle both GET and POST for SSE (MCP protocol requirements)
-    this.app.get('/sse', handleSSE);
-    this.app.post('/sse', handleSSE);
+    this.app.post('/messages', async (req, res) => {
+      const sessionId = req.query.sessionId as string;
+      const transport = transports[sessionId];
+      if (!transport) {
+        console.warn(`[GHL MCP HTTP] No transport for sessionId: ${sessionId}`);
+        res.status(400).json({ error: 'No active session for this sessionId' });
+        return;
+      }
+      await transport.handlePostMessage(req, res);
+    });
 
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
