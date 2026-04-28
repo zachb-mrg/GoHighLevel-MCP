@@ -388,7 +388,7 @@ class GHLMCPHttpServer {
         res.status(400).json({ error: 'No active session for this sessionId' });
         return;
       }
-      await transport.handlePostMessage(req, res);
+      await transport.handlePostMessage(req, res, req.body);
     });
 
     // Root endpoint with server info
