@@ -48,6 +48,10 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
   #cal-modal .ttl{font-weight:600;font-size:16px;margin-bottom:8px;}
   #cal-modal .body{color:#374151;white-space:pre-wrap;margin-bottom:10px;}
   #cal-modal .meta{color:#6b7280;margin-bottom:4px;}
+  #cal-modal .contact{background:#f9fafb;border:1px solid #eef0f2;border-radius:8px;padding:8px 10px;margin:8px 0 10px;font-size:13px;}
+  #cal-modal .contact .c-name{font-weight:600;color:#111;margin-bottom:2px;}
+  #cal-modal .contact .c-line{color:#374151;line-height:1.5;}
+  #cal-modal .contact a{color:#2563eb;text-decoration:none;}
   #cal-modal .lbl{font-size:12px;color:#6b7280;margin:10px 0 4px;}
   #cal-modal .swatches{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
   #cal-modal .swatch{width:22px;height:22px;border-radius:5px;border:1px solid rgba(0,0,0,.2);cursor:pointer;}
@@ -212,6 +216,7 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
     var card = document.createElement("div"); card.className = "card";
     var html = "";
     html += "<div class='ttl'>" + esc(ev.title) + "</div>";
+    html += "<div id='cal-contact' class='contact'>Loading contact...</div>";
     if(p.body) html += "<div class='body'>" + esc(p.body) + "</div>";
     if(due)    html += "<div class='meta'>Due: " + esc(due) + "</div>";
     if(name)   html += "<div class='meta'>Assigned to: " + esc(name) + "</div>";
@@ -253,6 +258,26 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
     closeBtn.addEventListener("click", closeModal);
     row.appendChild(closeBtn);
     card.appendChild(row); ov.appendChild(card); document.body.appendChild(ov);
+    loadContact(p.contactId);
+  }
+
+  function loadContact(contactId){
+    var el = document.getElementById("cal-contact"); if(!el) return;
+    if(!contactId){ el.textContent = "No contact linked to this task"; return; }
+    fetch("/api/cal/contact" + apiQS("contactId=" + encodeURIComponent(contactId)))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var c = d.contact;
+        if(!c){ el.textContent = "Contact unavailable"; return; }
+        var h = "";
+        h += "<div class='c-name'>" + esc(c.name || "Unknown contact") + "</div>";
+        if(c.companyName) h += "<div class='c-line'>" + esc(c.companyName) + "</div>";
+        if(c.phone) h += "<div class='c-line'>Phone: <a href='tel:" + esc(c.phone) + "'>" + esc(c.phone) + "</a></div>";
+        if(c.email) h += "<div class='c-line'>Email: <a href='mailto:" + esc(c.email) + "'>" + esc(c.email) + "</a></div>";
+        if(!c.phone && !c.email) h += "<div class='c-line'>No phone or email on file</div>";
+        el.innerHTML = h;
+      })
+      .catch(function(){ el.textContent = "Contact unavailable"; });
   }
 
   function refreshSwatchSelection(container, color){
