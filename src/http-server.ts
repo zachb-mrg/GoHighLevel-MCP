@@ -413,6 +413,7 @@ class GHLMCPHttpServer {
       if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
       try {
         const locationId = process.env.GHL_LOCATION_ID || '';
+        const appBase = (process.env.GHL_APP_URL || 'https://app.gohighlevel.com').replace(/\/+$/, '');
         const assignedTo = (req.query.assignedTo as string) || '';
         const searchParams: any = { completed: false, limit: 100, skip: 0 };
         if (assignedTo && assignedTo !== 'all') searchParams.assignedTo = [assignedTo];
@@ -426,7 +427,13 @@ class GHLMCPHttpServer {
             title: t.title || '(untitled task)',
             start: t.dueDate,
             allDay: true,
-            extendedProps: { contactId: t.contactId, assignedTo: t.assignedTo, dueDate: t.dueDate },
+            extendedProps: {
+              contactId: t.contactId,
+              assignedTo: t.assignedTo,
+              dueDate: t.dueDate,
+              body: t.body || '',
+              contactUrl: t.contactId ? (appBase + '/v2/location/' + locationId + '/contacts/detail/' + t.contactId) : '',
+            },
           }));
         res.json({ events });
       } catch (err: any) {
@@ -451,17 +458,23 @@ class GHLMCPHttpServer {
       }
     });
 
-    // Reschedule a task by changing its due date (the drag-drop target)
+    // Reschedule (dueDate) or complete (completed) a task
     this.app.put('/api/cal/task', async (req, res) => {
       if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
       try {
-        const { contactId, taskId, title, dueDate } = req.body || {};
-        if (!contactId || !taskId || !dueDate) {
-          res.status(400).json({ error: 'missing contactId, taskId, or dueDate' });
+        const { contactId, taskId, title, dueDate, completed } = req.body || {};
+        if (!contactId || !taskId) {
+          res.status(400).json({ error: 'missing contactId or taskId' });
           return;
         }
-        const updates: any = { dueDate };
+        const updates: any = {};
+        if (dueDate) updates.dueDate = dueDate;
+        if (typeof completed === 'boolean') updates.completed = completed;
         if (title) updates.title = title;
+        if (updates.dueDate === undefined && updates.completed === undefined) {
+          res.status(400).json({ error: 'nothing to update (need dueDate or completed)' });
+          return;
+        }
         const result: any = await this.ghlClient.updateContactTask(contactId, taskId, updates);
         res.json({ ok: true, task: (result && result.data) || null });
       } catch (err: any) {
