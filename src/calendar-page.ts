@@ -83,6 +83,7 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
   var Q = window.location.search;            // ?userId=...&k=...
   var P = new URLSearchParams(Q);
   var MY_ID = P.get("userId") || "";
+  var GHL_TASKS_URL = "__GHL_TASKS_URL__";   // GHL native Tasks page, injected by the server
   var userMap = {};                          // userId -> name, filled from /api/cal/users
 
   // ---- per-user color config (localStorage, keyed by the viewing user) ----
@@ -150,87 +151,42 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
       return { domNodes: [wrap] };
     },
     eventClick: function(info){ info.jsEvent.preventDefault(); openDetails(info.event); },
-    dateClick: function(info){ openCreate((info.dateStr || "").slice(0,10)); },
+    dateClick: function(info){ openDayPopup((info.dateStr || "").slice(0,10)); },
     eventDrop: function(info){ onDrop(info); }
   });
   calendar.render();
 
   who.addEventListener("change", function(){ calendar.refetchEvents(); });
-  document.getElementById("newBtn").addEventListener("click", function(){ openCreate(todayStr()); });
+  // Open GHL's native task creator in a new tab (full-featured, maintained by GHL).
+  document.getElementById("newBtn").addEventListener("click", function(){
+    window.open(GHL_TASKS_URL, "_blank", "noopener");
+  });
 
-  function todayStr(){ var d = new Date(); var m = ("0"+(d.getMonth()+1)).slice(-2); var day = ("0"+d.getDate()).slice(-2); return d.getFullYear()+"-"+m+"-"+day; }
+  function prettyDate(dateStr){
+    if(!dateStr) return "";
+    var d = new Date(dateStr + "T12:00:00");
+    return d.toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric", year:"numeric" });
+  }
 
-  function openCreate(prefillDate){
+  // Clicking a day opens a small prompt that launches GHL's native task creator.
+  function openDayPopup(dateStr){
     closeModal();
     var ov = document.createElement("div"); ov.id = "cal-modal";
     ov.addEventListener("click", function(e){ if(e.target === ov) closeModal(); });
     var card = document.createElement("div"); card.className = "card";
     card.innerHTML =
       "<div class='ttl'>New task</div>" +
-      "<div class='fld'><label>Contact</label><input id='cQuery' placeholder='Search name, phone, or email' autocomplete='off'/><div id='cResults'></div></div>" +
-      "<div class='fld'><label>Title</label><input id='tTitle' placeholder='e.g. Call about 901 4th St NE'/></div>" +
-      "<div class='fld'><label>Due date</label><input id='tDue' type='date'/></div>" +
-      "<div class='fld'><label>Assignee</label><select id='tWho'></select></div>" +
-      "<div class='fld'><label>Notes (optional)</label><textarea id='tBody' rows='3'></textarea></div>";
+      "<div class='meta'>For <b>" + esc(prettyDate(dateStr)) + "</b></div>" +
+      "<div class='meta' style='margin-top:6px'>Opens GHL's task creator in a new tab — set the contact, due date, and details there.</div>";
     var row = document.createElement("div"); row.className = "row";
-    var createBtn = document.createElement("button"); createBtn.className = "btn btn-create"; createBtn.textContent = "Create task";
-    var cancelBtn = document.createElement("button"); cancelBtn.className = "btn btn-close"; cancelBtn.textContent = "Cancel";
+    var openBtn = document.createElement("button");
+    openBtn.className = "btn btn-open"; openBtn.textContent = "Open task creator ↗";
+    openBtn.addEventListener("click", function(){ window.open(GHL_TASKS_URL, "_blank", "noopener"); closeModal(); });
+    var cancelBtn = document.createElement("button");
+    cancelBtn.className = "btn btn-close"; cancelBtn.textContent = "Cancel";
     cancelBtn.addEventListener("click", closeModal);
-    row.appendChild(createBtn); row.appendChild(cancelBtn);
+    row.appendChild(openBtn); row.appendChild(cancelBtn);
     card.appendChild(row); ov.appendChild(card); document.body.appendChild(ov);
-
-    document.getElementById("tDue").value = prefillDate || todayStr();
-    var sel = document.getElementById("tWho");
-    var optU = document.createElement("option"); optU.value = ""; optU.textContent = "Unassigned"; sel.appendChild(optU);
-    Object.keys(userMap).forEach(function(id){ var o = document.createElement("option"); o.value = id; o.textContent = userMap[id]; if(id === MY_ID) o.selected = true; sel.appendChild(o); });
-
-    var selectedContact = null;
-    var q = document.getElementById("cQuery");
-    var resBox = document.getElementById("cResults");
-    var tmr = null;
-    q.addEventListener("input", function(){
-      selectedContact = null;
-      var term = q.value.trim();
-      if(tmr) clearTimeout(tmr);
-      if(term.length < 2){ resBox.style.display = "none"; resBox.innerHTML = ""; return; }
-      tmr = setTimeout(function(){
-        fetch("/api/cal/contacts/search" + apiQS("query=" + encodeURIComponent(term)))
-          .then(function(r){ return r.json(); })
-          .then(function(d){
-            resBox.innerHTML = ""; var list = d.contacts || [];
-            if(!list.length){ resBox.style.display = "none"; return; }
-            list.forEach(function(c){
-              var it = document.createElement("div"); it.className = "ci";
-              var sub = [c.phone, c.email].filter(Boolean).join(" \\u00b7 ");
-              it.innerHTML = "<div>" + esc(c.name) + "</div>" + (sub ? "<div style='font-size:12px;color:#6b7280'>" + esc(sub) + "</div>" : "");
-              it.addEventListener("click", function(){ selectedContact = { id: c.id, name: c.name }; q.value = c.name; resBox.style.display = "none"; resBox.innerHTML = ""; });
-              resBox.appendChild(it);
-            });
-            resBox.style.display = "block";
-          }).catch(function(){ resBox.style.display = "none"; });
-      }, 300);
-    });
-
-    createBtn.addEventListener("click", function(){
-      var title = document.getElementById("tTitle").value.trim();
-      var dStr = document.getElementById("tDue").value;
-      var who2 = document.getElementById("tWho").value;
-      var notes = document.getElementById("tBody").value;
-      if(!selectedContact){ alert("Pick a contact from the search results."); return; }
-      if(!title){ alert("Enter a task title."); return; }
-      if(!dStr){ alert("Pick a due date."); return; }
-      var due = new Date(dStr + "T12:00:00").toISOString();
-      var payload = { contactId: selectedContact.id, title: title, dueDate: due, assignedTo: who2 || undefined, body: notes || undefined };
-      createBtn.disabled = true; createBtn.textContent = "Creating...";
-      fetch("/api/cal/task/create" + apiQS(), { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(payload) })
-        .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
-        .then(function(res){
-          if(!res.ok){ createBtn.disabled = false; createBtn.textContent = "Create task"; alert("Could not create: " + JSON.stringify(res.j)); return; }
-          closeModal(); calendar.refetchEvents(); setStatus("Task created");
-          setTimeout(function(){ setStatus(""); }, 1500);
-        })
-        .catch(function(){ createBtn.disabled = false; createBtn.textContent = "Create task"; alert("Network error"); });
-    });
   }
 
   // Populate the assignee dropdown + the userId->name map for the details popup
