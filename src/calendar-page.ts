@@ -5,8 +5,9 @@
 // FullCalendar loads from CDN — no build step, no extra dependency.
 //
 // Features: day/week/month views, assignee filter, drag-to-reschedule,
-// inline checkbox to mark complete, and click-a-task for details + a link
-// to open the associated contact in GHL.
+// inline checkbox to mark complete, click-a-task for details + open contact,
+// and per-user task colors with an editable color key (stored in the
+// browser's localStorage, keyed by the viewing user's id).
 // -----------------------------------------------------------------------------
 export const CALENDAR_PAGE = `<!DOCTYPE html>
 <html lang="en"><head>
@@ -23,6 +24,16 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
   .bar label{font-size:13px;color:#6b7280;}
   select{padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;background:#fff;}
   #status{font-size:12px;color:#9ca3af;margin-left:auto;}
+  .mini-btn{padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;}
+  #legend{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px;flex:0 0 auto;}
+  #legend .lg{display:flex;align-items:center;gap:5px;font-size:12px;color:#374151;}
+  #legend .sw{width:12px;height:12px;border-radius:3px;display:inline-block;border:1px solid rgba(0,0,0,.15);}
+  .editor{border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px;flex:0 0 auto;}
+  .editor .erow{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .editor input[type=text]{flex:1 1 auto;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;}
+  .editor input[type=color]{width:34px;height:28px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;padding:0;}
+  .editor .del{background:#fee2e2;border:0;color:#991b1b;border-radius:6px;padding:5px 9px;cursor:pointer;}
+  .editor .add{background:#2563eb;color:#fff;border:0;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;margin-top:4px;}
   #cal{width:100%;flex:1 1 auto;min-height:0;}
   .fc .fc-button-primary{background:#2563eb;border-color:#2563eb;}
   .fc .fc-button-primary:hover{background:#1d4ed8;border-color:#1d4ed8;}
@@ -37,6 +48,9 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
   #cal-modal .ttl{font-weight:600;font-size:16px;margin-bottom:8px;}
   #cal-modal .body{color:#374151;white-space:pre-wrap;margin-bottom:10px;}
   #cal-modal .meta{color:#6b7280;margin-bottom:4px;}
+  #cal-modal .lbl{font-size:12px;color:#6b7280;margin:10px 0 4px;}
+  #cal-modal .swatches{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+  #cal-modal .swatch{width:22px;height:22px;border-radius:5px;border:1px solid rgba(0,0,0,.2);cursor:pointer;}
   #cal-modal .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
   #cal-modal a.btn,#cal-modal button.btn{border:0;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none;}
   #cal-modal .btn-open{background:#2563eb;color:#fff;}
@@ -47,14 +61,34 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
   <div class="bar">
     <label for="who">Assignee</label>
     <select id="who"><option value="">My tasks</option><option value="all">Whole team</option></select>
+    <button id="keyBtn" class="mini-btn">Edit key</button>
     <span id="status"></span>
   </div>
+  <div id="legend"></div>
+  <div id="keyEditor" class="editor" style="display:none;"></div>
   <div id="cal"></div>
 <script>
   var Q = window.location.search;            // ?userId=...&k=...
   var P = new URLSearchParams(Q);
   var MY_ID = P.get("userId") || "";
   var userMap = {};                          // userId -> name, filled from /api/cal/users
+
+  // ---- per-user color config (localStorage, keyed by the viewing user) ----
+  var STORE_KEY = "taskcal_" + (MY_ID || "anon");
+  function loadCfg(){
+    try { var raw = localStorage.getItem(STORE_KEY); if(raw){ return JSON.parse(raw); } } catch(e){}
+    return null;
+  }
+  var cfg = loadCfg() || { palette: [
+    { label: "Urgent",    color: "#ef4444" },
+    { label: "Follow-up", color: "#3b82f6" },
+    { label: "Showing",   color: "#22c55e" },
+    { label: "Admin",     color: "#f59e0b" }
+  ], taskColors: {} };
+  if(!cfg.palette) cfg.palette = [];
+  if(!cfg.taskColors) cfg.taskColors = {};
+  function saveCfg(){ try { localStorage.setItem(STORE_KEY, JSON.stringify(cfg)); } catch(e){} }
+
   function setStatus(m){ document.getElementById("status").textContent = m || ""; }
   function apiQS(extra){
     var s = Q && Q.length ? Q : "";
@@ -79,7 +113,13 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
       setStatus("Loading...");
       fetch("/api/cal/tasks" + apiQS("assignedTo=" + encodeURIComponent(assignee)))
         .then(function(r){ return r.json(); })
-        .then(function(d){ setStatus(""); if(d.error){ setStatus("Error: " + (d.status||d.error)); ok([]); } else { ok(d.events||[]); } })
+        .then(function(d){
+          setStatus("");
+          if(d.error){ setStatus("Error: " + (d.status||d.error)); ok([]); return; }
+          var evs = d.events || [];
+          evs.forEach(function(e){ var c = cfg.taskColors[e.id]; if(c){ e.backgroundColor = c; e.borderColor = c; } });
+          ok(evs);
+        })
         .catch(function(e){ setStatus("Network error"); fail(e); });
     },
     // Render each event as a checkbox + title. Checkbox completes; rest opens details.
@@ -117,6 +157,49 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
       });
     }).catch(function(){});
 
+  // ---- color key (legend + editor) ----
+  function renderLegend(){
+    var el = document.getElementById("legend");
+    el.innerHTML = "";
+    cfg.palette.forEach(function(p){
+      var d = document.createElement("div"); d.className = "lg";
+      var sw = document.createElement("span"); sw.className = "sw"; sw.style.background = p.color;
+      var lb = document.createElement("span"); lb.textContent = p.label || "(unnamed)";
+      d.appendChild(sw); d.appendChild(lb); el.appendChild(d);
+    });
+  }
+  function renderKeyEditor(){
+    var el = document.getElementById("keyEditor");
+    el.innerHTML = "";
+    cfg.palette.forEach(function(p, i){
+      var row = document.createElement("div"); row.className = "erow";
+      var col = document.createElement("input"); col.type = "color"; col.value = p.color;
+      col.addEventListener("input", function(){ cfg.palette[i].color = col.value; saveCfg(); renderLegend(); });
+      var txt = document.createElement("input"); txt.type = "text"; txt.value = p.label; txt.placeholder = "Label (e.g. Hot lead)";
+      txt.addEventListener("input", function(){ cfg.palette[i].label = txt.value; saveCfg(); renderLegend(); });
+      var del = document.createElement("button"); del.className = "del"; del.textContent = "Delete";
+      del.addEventListener("click", function(){ cfg.palette.splice(i,1); saveCfg(); renderLegend(); renderKeyEditor(); });
+      row.appendChild(col); row.appendChild(txt); row.appendChild(del); el.appendChild(row);
+    });
+    var add = document.createElement("button"); add.className = "add"; add.textContent = "+ Add color";
+    add.addEventListener("click", function(){ cfg.palette.push({ label: "New", color: "#9ca3af" }); saveCfg(); renderLegend(); renderKeyEditor(); });
+    el.appendChild(add);
+  }
+  document.getElementById("keyBtn").addEventListener("click", function(){
+    var e = document.getElementById("keyEditor");
+    var show = e.style.display === "none";
+    e.style.display = show ? "block" : "none";
+    document.getElementById("keyBtn").textContent = show ? "Done" : "Edit key";
+    if(show) renderKeyEditor();
+  });
+  renderLegend();
+
+  function setTaskColor(ev, color){
+    if(color){ cfg.taskColors[ev.id] = color; ev.setProp("backgroundColor", color); ev.setProp("borderColor", color); }
+    else { delete cfg.taskColors[ev.id]; ev.setProp("backgroundColor", ""); ev.setProp("borderColor", ""); }
+    saveCfg();
+  }
+
   function closeModal(){ var m = document.getElementById("cal-modal"); if(m) m.remove(); }
 
   function openDetails(ev){
@@ -133,6 +216,26 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
     if(due)    html += "<div class='meta'>Due: " + esc(due) + "</div>";
     if(name)   html += "<div class='meta'>Assigned to: " + esc(name) + "</div>";
     card.innerHTML = html;
+
+    // color picker row
+    var lbl = document.createElement("div"); lbl.className = "lbl"; lbl.textContent = "Color";
+    card.appendChild(lbl);
+    var sw = document.createElement("div"); sw.className = "swatches";
+    cfg.palette.forEach(function(pl){
+      var s = document.createElement("div"); s.className = "swatch"; s.style.background = pl.color; s.title = pl.label;
+      s.addEventListener("click", function(){ setTaskColor(ev, pl.color); refreshSwatchSelection(sw, pl.color); });
+      sw.appendChild(s);
+    });
+    var custom = document.createElement("input"); custom.type = "color"; custom.title = "Custom color";
+    custom.value = cfg.taskColors[ev.id] || "#3b82f6";
+    custom.style.cssText = "width:28px;height:28px;border:1px solid #d1d5db;border-radius:5px;padding:0;cursor:pointer;";
+    custom.addEventListener("input", function(){ setTaskColor(ev, custom.value); refreshSwatchSelection(sw, custom.value); });
+    var clear = document.createElement("button"); clear.className = "btn btn-close"; clear.textContent = "Clear"; clear.style.padding = "4px 8px";
+    clear.addEventListener("click", function(){ setTaskColor(ev, ""); refreshSwatchSelection(sw, null); });
+    sw.appendChild(custom); sw.appendChild(clear);
+    card.appendChild(sw);
+    refreshSwatchSelection(sw, cfg.taskColors[ev.id] || null);
+
     var row = document.createElement("div"); row.className = "row";
     if(p.contactUrl){
       var openBtn = document.createElement("a");
@@ -150,6 +253,22 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
     closeBtn.addEventListener("click", closeModal);
     row.appendChild(closeBtn);
     card.appendChild(row); ov.appendChild(card); document.body.appendChild(ov);
+  }
+
+  function refreshSwatchSelection(container, color){
+    var nodes = container.querySelectorAll(".swatch");
+    for(var i=0;i<nodes.length;i++){
+      var match = color && nodes[i].style.background && color.toLowerCase() === rgbToHex(nodes[i].style.background);
+      nodes[i].style.outline = match ? "3px solid #111" : "none";
+      nodes[i].style.outlineOffset = "1px";
+    }
+  }
+  function rgbToHex(s){
+    if(!s) return "";
+    if(s.charAt(0) === "#") return s.toLowerCase();
+    var m = s.match(/\\d+/g); if(!m || m.length < 3) return s.toLowerCase();
+    function h(n){ var x = parseInt(n,10).toString(16); return x.length===1 ? "0"+x : x; }
+    return ("#" + h(m[0]) + h(m[1]) + h(m[2])).toLowerCase();
   }
 
   function completeTask(ev){
