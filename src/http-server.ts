@@ -34,6 +34,7 @@ import { SurveyTools } from './tools/survey-tools';
 import { StoreTools } from './tools/store-tools';
 import { ProductsTools } from './tools/products-tools.js';
 import { GHLConfig } from './types/ghl-types';
+import { CALENDAR_PAGE } from './calendar-page';
 
 // Load environment variables
 dotenv.config();
@@ -390,6 +391,84 @@ class GHLMCPHttpServer {
       }
       await transport.handlePostMessage(req, res, req.body);
     });
+
+    // ===== Task Calendar widget =====
+    // Drag-and-drop calendar of GHL tasks, embedded in a GHL dashboard IFRAME.
+    // Reuses this.ghlClient + the same env (GHL_LOCATION_ID). Same-origin -> no CORS.
+    const CAL_KEY = process.env.CAL_KEY || '';
+    const calAuthed = (req: express.Request): boolean => {
+      if (!CAL_KEY) return true; // set CAL_KEY in Railway to lock this down
+      const k = (req.query.k as string) || (req.headers['x-cal-key'] as string);
+      return k === CAL_KEY;
+    };
+
+    // Serve the calendar page (embed this URL as a GHL dashboard IFRAME)
+    this.app.get('/calendar', (req, res) => {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(CALENDAR_PAGE);
+    });
+
+    // List tasks as FullCalendar events
+    this.app.get('/api/cal/tasks', async (req, res) => {
+      if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      try {
+        const locationId = process.env.GHL_LOCATION_ID || '';
+        const assignedTo = (req.query.assignedTo as string) || '';
+        const searchParams: any = { completed: false, limit: 100, skip: 0 };
+        if (assignedTo && assignedTo !== 'all') searchParams.assignedTo = [assignedTo];
+
+        const result: any = await this.ghlClient.searchLocationTasks(locationId, searchParams);
+        const tasks: any[] = (result && result.data && (result.data.tasks || result.data)) || [];
+        const events = (Array.isArray(tasks) ? tasks : [])
+          .filter((t: any) => t && t.dueDate)
+          .map((t: any) => ({
+            id: t.id || t._id,
+            title: t.title || '(untitled task)',
+            start: t.dueDate,
+            allDay: true,
+            extendedProps: { contactId: t.contactId, assignedTo: t.assignedTo, dueDate: t.dueDate },
+          }));
+        res.json({ events });
+      } catch (err: any) {
+        res.status(500).json({ error: (err && err.message) || String(err) });
+      }
+    });
+
+    // Team members for the assignee dropdown
+    this.app.get('/api/cal/users', async (req, res) => {
+      if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      try {
+        const locationId = process.env.GHL_LOCATION_ID || '';
+        const result: any = await this.ghlClient.getUsers(locationId);
+        const list: any[] = (result && result.data) || [];
+        const users = list.map((u: any) => ({
+          id: u.id,
+          name: u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.id,
+        }));
+        res.json({ users });
+      } catch (err: any) {
+        res.status(500).json({ error: (err && err.message) || String(err) });
+      }
+    });
+
+    // Reschedule a task by changing its due date (the drag-drop target)
+    this.app.put('/api/cal/task', async (req, res) => {
+      if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      try {
+        const { contactId, taskId, title, dueDate } = req.body || {};
+        if (!contactId || !taskId || !dueDate) {
+          res.status(400).json({ error: 'missing contactId, taskId, or dueDate' });
+          return;
+        }
+        const updates: any = { dueDate };
+        if (title) updates.title = title;
+        const result: any = await this.ghlClient.updateContactTask(contactId, taskId, updates);
+        res.json({ ok: true, task: (result && result.data) || null });
+      } catch (err: any) {
+        res.status(500).json({ error: (err && err.message) || String(err) });
+      }
+    });
+    // ===== end Task Calendar widget =====
 
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
