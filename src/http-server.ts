@@ -480,6 +480,45 @@ class GHLMCPHttpServer {
       }
     });
 
+    // Search contacts for the "new task" contact picker
+    this.app.get('/api/cal/contacts/search', async (req, res) => {
+      if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      try {
+        const locationId = process.env.GHL_LOCATION_ID || '';
+        const query = (req.query.query as string) || '';
+        const result: any = await this.ghlClient.searchContacts({ locationId, query, limit: 10 } as any);
+        const list: any[] = (result && result.data && (result.data.contacts || result.data)) || [];
+        const contacts = (Array.isArray(list) ? list : []).map((c: any) => ({
+          id: c.id,
+          name: c.contactName || c.name || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c.phone || c.id,
+          email: c.email || '',
+          phone: c.phone || '',
+        }));
+        res.json({ contacts });
+      } catch (err: any) {
+        res.status(500).json({ error: (err && err.message) || String(err) });
+      }
+    });
+
+    // Create a new task on a contact
+    this.app.post('/api/cal/task/create', async (req, res) => {
+      if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      try {
+        const { contactId, title, dueDate, assignedTo, body } = req.body || {};
+        if (!contactId || !title || !dueDate) {
+          res.status(400).json({ error: 'missing contactId, title, or dueDate' });
+          return;
+        }
+        const taskData: any = { title, dueDate, completed: false };
+        if (body) taskData.body = body;
+        if (assignedTo) taskData.assignedTo = assignedTo;
+        const result: any = await this.ghlClient.createContactTask(contactId, taskData);
+        res.json({ ok: true, task: (result && result.data) || null });
+      } catch (err: any) {
+        res.status(500).json({ error: (err && err.message) || String(err) });
+      }
+    });
+
     // Reschedule (dueDate) or complete (completed) a task
     this.app.put('/api/cal/task', async (req, res) => {
       if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
