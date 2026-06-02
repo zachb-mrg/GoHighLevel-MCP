@@ -18,7 +18,7 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
   .bar label{font-size:13px;color:#6b7280;}
   select{padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;background:#fff;}
   #status{font-size:12px;color:#9ca3af;margin-left:auto;}
-  #cal{max-width:1100px;}
+  #cal{width:100%;}
   .fc .fc-button-primary{background:#2563eb;border-color:#2563eb;}
   .fc .fc-button-primary:hover{background:#1d4ed8;border-color:#1d4ed8;}
   .fc-event{cursor:grab;font-size:12px;}
