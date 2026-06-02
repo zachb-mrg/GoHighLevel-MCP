@@ -458,6 +458,28 @@ class GHLMCPHttpServer {
       }
     });
 
+    // Look up a single contact's details for the task popup
+    this.app.get('/api/cal/contact', async (req, res) => {
+      if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      try {
+        const contactId = (req.query.contactId as string) || '';
+        if (!contactId) { res.status(400).json({ error: 'missing contactId' }); return; }
+        const result: any = await this.ghlClient.getContact(contactId);
+        const c: any = (result && result.data) || {};
+        res.json({
+          contact: {
+            id: c.id,
+            name: c.contactName || c.name || [c.firstName, c.lastName].filter(Boolean).join(' ') || '',
+            email: c.email || '',
+            phone: c.phone || '',
+            companyName: c.companyName || c.company || '',
+          },
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: (err && err.message) || String(err) });
+      }
+    });
+
     // Reschedule (dueDate) or complete (completed) a task
     this.app.put('/api/cal/task', async (req, res) => {
       if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
