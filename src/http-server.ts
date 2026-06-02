@@ -404,8 +404,11 @@ class GHLMCPHttpServer {
 
     // Serve the calendar page (embed this URL as a GHL dashboard IFRAME)
     this.app.get('/calendar', (req, res) => {
+      const locationId = process.env.GHL_LOCATION_ID || '';
+      const appBase = (process.env.GHL_APP_URL || 'https://app.gohighlevel.com').replace(/\/+$/, '');
+      const tasksUrl = appBase + '/v2/location/' + locationId + '/tasks';
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(CALENDAR_PAGE);
+      res.send(CALENDAR_PAGE.split('__GHL_TASKS_URL__').join(tasksUrl));
     });
 
     // List tasks as FullCalendar events
