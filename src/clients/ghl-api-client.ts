@@ -1209,6 +1209,26 @@ export class GHLApiClient {
   }
 
   /**
+   * Get the users (team members) for a location.
+   * Used by the Task Calendar widget to label the assignee filter.
+   * Token needs the users.readonly scope.
+   * GET /users/?locationId={locationId}
+   */
+  async getUsers(locationId?: string): Promise<GHLApiResponse<any[]>> {
+    try {
+      const loc = locationId || this.config.locationId;
+      const response: AxiosResponse<{ users: any[] }> = await this.axiosInstance.get(
+        '/users/',
+        { params: { locationId: loc } }
+      );
+
+      return this.wrapResponse(response.data.users || []);
+    } catch (error) {
+      throw this.handleApiError(error as AxiosError<GHLErrorResponse>);
+    }
+  }
+
+  /**
    * Delete a task for a contact
    * DELETE /contacts/{contactId}/tasks/{taskId}
    */
