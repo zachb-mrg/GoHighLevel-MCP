@@ -60,6 +60,7 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
   #cal-modal .btn-open{background:#2563eb;color:#fff;}
   #cal-modal .btn-done{background:#16a34a;color:#fff;}
   #cal-modal .btn-close{background:#e5e7eb;color:#111;}
+  #cal-modal .btn-del{background:#dc2626;color:#fff;}
   #cal-modal .btn-create{background:#16a34a;color:#fff;}
   #cal-modal .fld{margin-bottom:10px;}
   #cal-modal .fld label{display:block;font-size:12px;color:#6b7280;margin-bottom:3px;}
@@ -343,6 +344,10 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
     doneBtn.className = "btn btn-done"; doneBtn.textContent = "Mark complete";
     doneBtn.addEventListener("click", function(){ completeTask(ev); });
     row.appendChild(doneBtn);
+    var delBtn = document.createElement("button");
+    delBtn.className = "btn btn-del"; delBtn.textContent = "Delete";
+    delBtn.addEventListener("click", function(){ deleteTask(ev); });
+    row.appendChild(delBtn);
     var closeBtn = document.createElement("button");
     closeBtn.className = "btn btn-close"; closeBtn.textContent = "Close";
     closeBtn.addEventListener("click", closeModal);
@@ -399,6 +404,22 @@ export const CALENDAR_PAGE = `<!DOCTYPE html>
         setTimeout(function(){ setStatus(""); }, 1500);
       })
       .catch(function(){ setStatus("Failed"); });
+  }
+
+  function deleteTask(ev){
+    var p = ev.extendedProps || {};
+    if(!p.contactId){ alert("This task is not linked to a contact, so it cannot be deleted from here."); return; }
+    if(!confirm("Delete this task? This cannot be undone.")) return;
+    setStatus("Deleting...");
+    var url = "/api/cal/task" + apiQS("contactId=" + encodeURIComponent(p.contactId) + "&taskId=" + encodeURIComponent(ev.id));
+    fetch(url, { method:"DELETE" })
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(res){
+        if(!res.ok){ setStatus(""); alert("Could not delete: " + JSON.stringify(res.j)); return; }
+        ev.remove(); closeModal(); setStatus("Deleted");
+        setTimeout(function(){ setStatus(""); }, 1500);
+      })
+      .catch(function(){ setStatus(""); alert("Network error deleting task."); });
   }
 
   function onDrop(info){
