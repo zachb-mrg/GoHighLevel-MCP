@@ -556,6 +556,27 @@ class GHLMCPHttpServer {
         res.status(500).json({ error: (err && err.message) || String(err) });
       }
     });
+
+    // Delete a task (capped at 6s like create; pending if GHL is slow)
+    this.app.delete('/api/cal/task', async (req, res) => {
+      if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      const contactId = (req.query.contactId as string) || '';
+      const taskId = (req.query.taskId as string) || '';
+      if (!contactId || !taskId) { res.status(400).json({ error: 'missing contactId or taskId' }); return; }
+      const delPromise = this.ghlClient.deleteContactTask(contactId, taskId);
+      delPromise.catch(() => {});
+      const TIMEOUT: any = { __timeout: true };
+      try {
+        const r: any = await Promise.race([
+          delPromise,
+          new Promise((resolve) => setTimeout(() => resolve(TIMEOUT), 6000)),
+        ]);
+        if (r === TIMEOUT) { res.json({ ok: true, pending: true }); return; }
+        res.json({ ok: true });
+      } catch (err: any) {
+        res.status(500).json({ error: (err && err.message) || String(err) });
+      }
+    });
     // ===== end Task Calendar widget =====
 
     // Root endpoint with server info
