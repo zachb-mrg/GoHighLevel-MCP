@@ -503,20 +503,31 @@ class GHLMCPHttpServer {
       }
     });
 
-    // Create a new task on a contact
+    // Create a new task on a contact. GHL's create response can be very slow,
+    // so we cap the wait at 6s: if it hasn't returned by then we reply
+    // { pending: true } (the task is created server-side) and the calendar
+    // confirms it via refetch. A fast GHL error (e.g. bad data) still surfaces.
     this.app.post('/api/cal/task/create', async (req, res) => {
       if (!calAuthed(req)) { res.status(401).json({ error: 'unauthorized' }); return; }
+      const { contactId, title, dueDate, assignedTo, body } = req.body || {};
+      if (!contactId || !title || !dueDate) {
+        res.status(400).json({ error: 'missing contactId, title, or dueDate' });
+        return;
+      }
+      const taskData: any = { title, dueDate, completed: false };
+      if (body) taskData.body = body;
+      if (assignedTo) taskData.assignedTo = assignedTo;
+
+      const createPromise = this.ghlClient.createContactTask(contactId, taskData);
+      createPromise.catch(() => {}); // swallow a late rejection if it settles after we respond
+      const TIMEOUT: any = { __timeout: true };
       try {
-        const { contactId, title, dueDate, assignedTo, body } = req.body || {};
-        if (!contactId || !title || !dueDate) {
-          res.status(400).json({ error: 'missing contactId, title, or dueDate' });
-          return;
-        }
-        const taskData: any = { title, dueDate, completed: false };
-        if (body) taskData.body = body;
-        if (assignedTo) taskData.assignedTo = assignedTo;
-        const result: any = await this.ghlClient.createContactTask(contactId, taskData);
-        res.json({ ok: true, task: (result && result.data) || null });
+        const r: any = await Promise.race([
+          createPromise,
+          new Promise((resolve) => setTimeout(() => resolve(TIMEOUT), 6000)),
+        ]);
+        if (r === TIMEOUT) { res.json({ ok: true, pending: true }); return; }
+        res.json({ ok: true, task: (r && r.data) || null });
       } catch (err: any) {
         res.status(500).json({ error: (err && err.message) || String(err) });
       }
