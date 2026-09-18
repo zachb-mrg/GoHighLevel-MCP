@@ -882,7 +882,7 @@ export class GHLApiClient {
         contactId,
         message,
         fromNumber,
-        ...(scheduledTimestamp ? { scheduledTimestamp } : {})
+        ...(scheduledTimestamp ? { scheduledTimestamp: Math.floor(Number(scheduledTimestamp)) } : {})
       };
 
       return await this.sendMessage(messageData);
@@ -910,13 +910,15 @@ export class GHLApiClient {
     }
   ): Promise<GHLApiResponse<GHLSendMessageResponse>> {
     try {
+      const { scheduledTimestamp, ...rest } = options || {};
       const messageData: GHLSendMessageRequest = {
         type: 'Email',
         contactId,
         subject,
         message,
         html,
-        ...options
+        ...rest,
+        ...(scheduledTimestamp ? { scheduledTimestamp: Math.floor(Number(scheduledTimestamp)) } : {})
       };
 
       return await this.sendMessage(messageData);
