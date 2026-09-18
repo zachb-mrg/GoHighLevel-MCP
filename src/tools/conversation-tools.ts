@@ -69,6 +69,10 @@ export class ConversationTools {
             fromNumber: {
               type: 'string',
               description: 'Optional: Phone number to send from (must be configured in GHL)'
+            },
+            scheduledTimestamp: {
+              type: 'number',
+              description: 'Optional: UTC Unix timestamp in SECONDS at which GHL should send the SMS. Omit to send immediately. Cancel a scheduled message with cancel_scheduled_message.'
             }
           },
           required: ['contactId', 'message']
@@ -115,6 +119,10 @@ export class ConversationTools {
               type: 'array',
               items: { type: 'string' },
               description: 'Optional: Array of BCC email addresses'
+            },
+            scheduledTimestamp: {
+              type: 'number',
+              description: 'Optional: UTC Unix timestamp in SECONDS at which GHL should send the email. Omit to send immediately.'
             }
           },
           required: ['contactId', 'subject']
@@ -653,7 +661,8 @@ export class ConversationTools {
       const response = await this.ghlClient.sendSMS(
         params.contactId,
         params.message,
-        params.fromNumber
+        params.fromNumber,
+        params.scheduledTimestamp
       );
 
       const result = response.data as GHLSendMessageResponse;
@@ -662,7 +671,9 @@ export class ConversationTools {
         success: true,
         messageId: result.messageId,
         conversationId: result.conversationId,
-        message: `SMS sent successfully to contact ${params.contactId}`
+        message: params.scheduledTimestamp
+          ? `SMS scheduled for ${new Date(params.scheduledTimestamp * 1000).toISOString()} to contact ${params.contactId}`
+          : `SMS sent successfully to contact ${params.contactId}`
       };
     } catch (error) {
       throw new Error(`Failed to send SMS: ${error}`);
@@ -683,7 +694,8 @@ export class ConversationTools {
           emailFrom: params.emailFrom,
           emailCc: params.emailCc,
           emailBcc: params.emailBcc,
-          attachments: params.attachments
+          attachments: params.attachments,
+          scheduledTimestamp: params.scheduledTimestamp
         }
       );
 
