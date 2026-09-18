@@ -875,13 +875,14 @@ export class GHLApiClient {
    * Send SMS message to a contact
    * Convenience method for sending SMS
    */
-  async sendSMS(contactId: string, message: string, fromNumber?: string): Promise<GHLApiResponse<GHLSendMessageResponse>> {
+  async sendSMS(contactId: string, message: string, fromNumber?: string, scheduledTimestamp?: number): Promise<GHLApiResponse<GHLSendMessageResponse>> {
     try {
       const messageData: GHLSendMessageRequest = {
         type: 'SMS',
         contactId,
         message,
-        fromNumber
+        fromNumber,
+        ...(scheduledTimestamp ? { scheduledTimestamp } : {})
       };
 
       return await this.sendMessage(messageData);
@@ -905,6 +906,7 @@ export class GHLApiClient {
       emailCc?: string[];
       emailBcc?: string[];
       attachments?: string[];
+      scheduledTimestamp?: number;
     }
   ): Promise<GHLApiResponse<GHLSendMessageResponse>> {
     try {
