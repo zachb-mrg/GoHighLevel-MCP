@@ -615,6 +615,7 @@ export interface MCPSendSMSParams {
   contactId: string;
   message: string;
   fromNumber?: string;
+  scheduledTimestamp?: number;
 }
 
 export interface MCPSendEmailParams {
@@ -626,6 +627,7 @@ export interface MCPSendEmailParams {
   attachments?: string[];
   emailCc?: string[];
   emailBcc?: string[];
+  scheduledTimestamp?: number;
 }
 
 export interface MCPSearchConversationsParams {
